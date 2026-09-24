@@ -1,0 +1,70 @@
+{
+  "model": "gemma3:4b",
+  "ollama_host": "http://127.0.0.1:11434",
+  "hardware": "Windows 11 \u00b7 15.9 GB RAM \u00b7 NVIDIA GTX 1050 Ti 4 GB (Ollama GPU-offload)",
+  "timestamp": "2026-09-24T23:09:41.099495+00:00",
+  "source_commit_sha": "b382cd4e287d76e0e9114a26b290923b79c12561",
+  "worktree_clean": true,
+  "span_count": 48,
+  "trace_count": 12,
+  "stages": {
+    "generate": {
+      "n": 12,
+      "median_ms": 2053.5,
+      "min_ms": 1684.0,
+      "max_ms": 4405.4,
+      "p95_ms": 3819.9,
+      "share_of_total": 18.8
+    },
+    "rag_pipeline": {
+      "n": 12,
+      "median_ms": 2494.8,
+      "min_ms": 2080.5,
+      "max_ms": 101524.4,
+      "p95_ms": 47849.8,
+      "share_of_total": null
+    },
+    "rerank": {
+      "n": 12,
+      "median_ms": 301.5,
+      "min_ms": 268.7,
+      "max_ms": 5050.1,
+      "p95_ms": 2453.7,
+      "share_of_total": 2.8
+    },
+    "retrieve": {
+      "n": 12,
+      "median_ms": 108.9,
+      "min_ms": 94.5,
+      "max_ms": 92059.2,
+      "p95_ms": 41586.1,
+      "share_of_total": 1.0
+    }
+  },
+  "cold_start_ratio": 41.82,
+  "tokens": {
+    "input": 3225,
+    "output": 196,
+    "total": 3421
+  },
+  "cost_usd": 0.0,
+  "gates": {
+    "retrieval": {
+      "result": 1.0,
+      "min": 0.8
+    },
+    "grounding": {
+      "result": 0.8,
+      "min": 0.7
+    },
+    "abstention": {
+      "result": 1.0,
+      "min": 0.5
+    },
+    "false_abstention": {
+      "result": 0.0
+    }
+  },
+  "verdict": "PASS",
+  "exit_code": 0
+}

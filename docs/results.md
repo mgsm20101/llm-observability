@@ -1,53 +1,37 @@
-# LLM Observability — Evaluation Results
+# Results
 
-<!-- RESULTS: filled from results/summary_<sha8>.json after the measured run -->
+Measured at commit `b382cd4e` on a clean tree, `gemma3:4b` through local Ollama —
+raw files [`results/traces_b382cd4e.jsonl`](results/traces_b382cd4e.jsonl) (every span) and
+[`results/summary_b382cd4e.json`](results/summary_b382cd4e.json) (the summary `run_traced.py` wrote).
+12 questions, 48 spans. Warm figures and warm shares below are
+computed from the same traces file, excluding the first request.
 
-This file is a placeholder. It is filled in by copying the fields written to
-`results/summary_<sha8>.json` after running:
+| stage | median ms (all 12) | median ms (warm 11) | p95 ms (all) | first request ms | share of warm pipeline |
+|---|---:|---:|---:|---:|---:|
+| `retrieve` | 109 | 104 | 41,586 | 92,059 | 4.8% |
+| `rerank` | 302 | 300 | 2,454 | 5,050 | 11.2% |
+| `generate` | 2,054 | 1,995 | 3,820 | 4,405 | 83.8% |
+| `rag_pipeline` | 2,495 | 2,428 | 47,850 | 101,524 | — |
 
-```bash
-python run_traced.py
-```
+* **Generation is the cost once warm**: about 84% of warm
+  pipeline time; retrieval is about 5%.
+* **The first request is 42× the warm median**, and almost all of that is
+  `retrieve` loading the embedding model (92 s) — not the LLM. A service
+  that loads the encoder at startup instead of on first use removes it from user latency.
+* **Tokens**: 3,225 in, 196 out across the run; cost 0.00 USD at
+  the default self-hosted price of zero (hosted prices are configuration, not measurement).
 
-`run_traced.py` refuses to run against a dirty worktree or outside a git
-repository (unless `--allow-dirty` is passed), so every number that ends up
-here is tied to a specific `source_commit_sha` and a recorded `worktree_clean`
-state — no figure is written by hand.
+**CI gate** (thresholds fixed in `src/eval_ci.py` before this run) — verdict **PASS**, exit 0:
 
-## What will be reported
+| gate | result | threshold |
+|---|---:|---:|
+| retrieval (expected doc retrieved) | 1.00 | ≥ 0.8 |
+| grounding (answer contains expected fact) | 0.80 | ≥ 0.7 |
+| abstention on out-of-scope questions | 1.00 | ≥ 0.5 |
+| false abstention on answerable questions | 0.00 | reported |
 
-### Environment
-
-Model, Ollama host, hardware string (this machine: Windows 11, 15.9 GB RAM,
-NVIDIA GTX 1050 Ti 4 GB, with Ollama offloading part of the model to it), and
-the run timestamp.
-
-### Traces
-
-Span and trace counts, and for each stage (`retrieve`, `rerank`, `generate`,
-`rag_pipeline`): sample size, median latency, p95 latency, and share of total
-wall clock. `eval_ci` and the dashboard both read these through the same
-`tracer.median()` / `tracer.stage_latencies()` helpers, so the three surfaces
-cannot disagree about what the traces say — see the correction note below.
-
-### Cold start
-
-The ratio of the first request's `rag_pipeline` duration to the median of the
-rest. The first request pays to load the encoder, the cross-encoder and the
-model; an average would bury that inside a meaningless overall mean.
-
-### Tokens and cost
-
-Total input/output tokens read back from Ollama, and the cost computed from
-them. Local inference is billed at zero; `cost.py` takes prices from config
-(default 0.0/0.0), so any non-zero figure here is a labelled projection against
-an illustrative rate, not a real invoice.
-
-### Gates
-
-The three pre-registered thresholds (retrieval ≥ 0.80, grounding ≥ 0.70,
-abstention ≥ 0.50), each check's result, and the overall verdict
-(`EVAL CI PASSED` / `EVAL CI FAILED`, with the process exit code).
+Twelve questions: the gate proves the mechanism fails a build on a regression; the rates
+themselves are too small a sample to rank models or prompts.
 
 ## Scored by a program, not a judge
 
@@ -76,10 +60,9 @@ they cannot be reproduced from a recorded state and are not repeated here.
 They also predate the fix that made `eval_ci` and the dashboard share one
 `tracer.median()` (previously one took `sorted(v)[n // 2]` and the other a
 nearest-rank percentile, so the same traces produced two different `generate`
-medians). The next run through `run_traced.py` replaces this section with
-numbers that carry their own provenance.
+medians). The numbers above replace them and carry their own provenance.
 
-## What this will not establish
+## What this does not establish
 
 * **Anything about Langfuse or Qdrant.** The sink is a local JSONL file and
   retrieval is an in-process dense store; neither hosted service is part of

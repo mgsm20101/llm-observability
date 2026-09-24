@@ -69,18 +69,38 @@ the saved traces.
 
 ## Results
 
-<!-- RESULTS: filled from results/summary_<sha8>.json after the measured run -->
+Measured at commit `b382cd4e` on a clean tree, `gemma3:4b` through local Ollama —
+raw files [`results/traces_b382cd4e.jsonl`](results/traces_b382cd4e.jsonl) (every span) and
+[`results/summary_b382cd4e.json`](results/summary_b382cd4e.json) (the summary `run_traced.py` wrote).
+12 questions, 48 spans. Warm figures and warm shares below are
+computed from the same traces file, excluding the first request.
 
-This section is populated by `run_traced.py`, which runs the eval set through
-the traced pipeline, gates the traces with `src/eval_ci.py`, and writes
-`results/summary_<sha8>.json` — span/trace counts, per-stage median and p95
-latency, each stage's share of wall clock, the cold-start ratio (first request
-vs. the median of the rest), token counts, computed cost, the gate thresholds
-and verdict, model, Ollama host, hardware, timestamp, and the commit the run
-was taken against. Earlier local numbers for this pipeline exist but came from
-an uncommitted tree, so they are not reproducible from a recorded state and are
-not reported here; they are pending re-measurement against a committed commit
-SHA using the command in [Reproduction](#reproduction).
+| stage | median ms (all 12) | median ms (warm 11) | p95 ms (all) | first request ms | share of warm pipeline |
+|---|---:|---:|---:|---:|---:|
+| `retrieve` | 109 | 104 | 41,586 | 92,059 | 4.8% |
+| `rerank` | 302 | 300 | 2,454 | 5,050 | 11.2% |
+| `generate` | 2,054 | 1,995 | 3,820 | 4,405 | 83.8% |
+| `rag_pipeline` | 2,495 | 2,428 | 47,850 | 101,524 | — |
+
+* **Generation is the cost once warm**: about 84% of warm
+  pipeline time; retrieval is about 5%.
+* **The first request is 42× the warm median**, and almost all of that is
+  `retrieve` loading the embedding model (92 s) — not the LLM. A service
+  that loads the encoder at startup instead of on first use removes it from user latency.
+* **Tokens**: 3,225 in, 196 out across the run; cost 0.00 USD at
+  the default self-hosted price of zero (hosted prices are configuration, not measurement).
+
+**CI gate** (thresholds fixed in `src/eval_ci.py` before this run) — verdict **PASS**, exit 0:
+
+| gate | result | threshold |
+|---|---:|---:|
+| retrieval (expected doc retrieved) | 1.00 | ≥ 0.8 |
+| grounding (answer contains expected fact) | 0.80 | ≥ 0.7 |
+| abstention on out-of-scope questions | 1.00 | ≥ 0.5 |
+| false abstention on answerable questions | 0.00 | reported |
+
+Twelve questions: the gate proves the mechanism fails a build on a regression; the rates
+themselves are too small a sample to rank models or prompts.
 
 ## Limitations
 
@@ -94,13 +114,13 @@ SHA using the command in [Reproduction](#reproduction).
   is the arithmetic, not the gate doing its job. *Next:* degrade retrieval
   deliberately, run the real pipeline, and confirm the build goes red on its
   own.
-- **Latency will be indicative, not a benchmark.** One process on a shared
+- **Latency is indicative, not a benchmark.** One process on a shared
   desktop, no warm-up discipline, no repetitions, GPU share varying with
   whatever else holds VRAM (Windows 11, 15.9 GB RAM, GTX 1050 Ti 4 GB, with
   Ollama offloading part of the model to it). The per-stage *breakdown* is the
   deliverable; the absolute milliseconds are not a claim about hardware
   capability.
-- **Token counts will be real; any cost is modelled.** Local inference is
+- **Token counts are real; any cost is modelled.** Local inference is
   billed at zero. `cost.py` takes prices from config, defaulting to 0.0/0.0, so
   the same counts can optionally be priced against an illustrative rate —
   that is a projection and is labelled as one on every surface.
