@@ -1,0 +1,12 @@
+{"id": "E01", "question": "كم يوم إجازة سنوية يستحق الموظف؟", "expected_doc": "leave-annual", "answer_contains": ["21"], "answerable": true}
+{"id": "E02", "question": "بعد كام سنة تزيد الإجازة السنوية؟", "expected_doc": "leave-annual", "answer_contains": ["30"], "answerable": true}
+{"id": "E03", "question": "ما حد الإجازة المرضية المدفوعة بالكامل؟", "expected_doc": "leave-sick", "answer_contains": ["15"], "answerable": true}
+{"id": "E04", "question": "أقدر أشتغل من البيت كام يوم في الأسبوع؟", "expected_doc": "remote-work", "answer_contains": ["يوم"], "answerable": true}
+{"id": "E05", "question": "مدة فترة التجربة للموظف الجديد؟", "expected_doc": "probation", "answer_contains": ["ثلاثة", "3"], "answerable": true}
+{"id": "E06", "question": "خلال كام يوم لازم أقدّم فاتورة المصروفات؟", "expected_doc": "expenses", "answer_contains": ["30"], "answerable": true}
+{"id": "E07", "question": "ما الحد الأدنى لطول كلمة المرور؟", "expected_doc": "security-password", "answer_contains": ["12"], "answerable": true}
+{"id": "E08", "question": "كم ميزانية التدريب السنوية للموظف؟", "expected_doc": "training", "answer_contains": ["1000"], "answerable": true}
+{"id": "E09", "question": "إمتى بيتم تقييم الأداء؟", "expected_doc": "performance", "answer_contains": ["يونيو", "ديسمبر"], "answerable": true}
+{"id": "E10", "question": "خلال كام ساعة بتتلغي صلاحيات الموظف بعد ما يسيب الشركة؟", "expected_doc": "security-access", "answer_contains": ["24"], "answerable": true}
+{"id": "E11", "question": "ما قيمة بدل السكن الشهري للموظفين؟", "expected_doc": null, "answer_contains": [], "answerable": false}
+{"id": "E12", "question": "كم عدد موظفي الشركة حالياً؟", "expected_doc": null, "answer_contains": [], "answerable": false}

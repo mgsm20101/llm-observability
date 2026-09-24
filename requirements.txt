@@ -1,0 +1,13 @@
+# Everything the measured path needs, and nothing it does not.
+#
+# Removed with the rewrite: langfuse (the sink is a local file now) and
+# qdrant-client (retrieval is an in-process dense store over 12 documents).
+# Both were hard requirements of a pipeline that could not run.
+
+sentence-transformers>=3.2   # e5 encoder + cross-encoder reranker
+numpy>=1.26
+httpx>=0.27                  # Ollama calls
+pydantic>=2.8
+pydantic-settings>=2.4
+fastapi>=0.115               # dashboard only
+uvicorn[standard]>=0.30      # dashboard only
