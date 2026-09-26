@@ -20,54 +20,16 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+from src.provenance import DirtyWorktreeError, check_provenance
 
 ROOT = Path(__file__).resolve().parent
 RESULTS_DIR = ROOT / "results"
 
 HARDWARE = "Windows 11 · 15.9 GB RAM · NVIDIA GTX 1050 Ti 4 GB (Ollama GPU-offload)"
-
-
-class DirtyTreeError(RuntimeError):
-    """The worktree has uncommitted changes and --allow-dirty was not passed."""
-
-
-class NotAGitRepoError(RuntimeError):
-    """ROOT is not inside a git repository (or git is unavailable)."""
-
-
-def _git(*args: str) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise NotAGitRepoError(result.stderr.strip() or "not a git repository")
-    return result.stdout.strip()
-
-
-def check_repo_state(allow_dirty: bool) -> tuple[str, bool]:
-    """Return (commit_sha, worktree_clean); raise if dirty and not allowed.
-
-    Two calls, not one: `rev-parse HEAD` needs at least one commit to exist,
-    `status --porcelain` needs nothing but a working tree. Failing either one
-    means the run cannot be tied to a commit, which is the refusal this
-    function exists to enforce.
-    """
-    sha = _git("rev-parse", "HEAD")
-    status = _git("status", "--porcelain")
-    clean = status == ""
-    if not clean and not allow_dirty:
-        raise DirtyTreeError(
-            "worktree has uncommitted changes; commit or stash them, "
-            "or pass --allow-dirty"
-        )
-    return sha, clean
 
 
 def build_summary(
@@ -169,8 +131,8 @@ def run_measured(sha: str, worktree_clean: bool) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
-        sha, worktree_clean = check_repo_state(args.allow_dirty)
-    except (DirtyTreeError, NotAGitRepoError) as exc:
+        sha, worktree_clean = check_provenance(args.allow_dirty)
+    except DirtyWorktreeError as exc:
         print(f"refusing to run: {exc}", file=sys.stderr)
         return 1
     return run_measured(sha, worktree_clean)

@@ -44,6 +44,7 @@ question
 | File | What it is |
 |---|---|
 | `run_traced.py` | measured-run entry point: refuses a dirty tree, runs the eval, writes `results/` |
+| `src/provenance.py` | `check_provenance`: commit SHA + clean-tree guard (same file in tool-agent-mcp) |
 | `src/eval_ci.py` | eval set loader, the one scoring loop (`score_cases`), the three gates, CI exit code |
 | `src/rag_observed.py` | the pipeline: `answer_question` and its three traced stages; `Document`, `RAGResponse` |
 | `src/tracer.py` | span tracing: `observe`, `current_trace_id`, `annotate`, `add_score`, `read_traces` |
@@ -61,7 +62,8 @@ question
 | `docs/results.md` | the full results write-up |
 | `docs/DESIGN.md` | design decisions and why |
 | `tests/test_eval_ci.py` | scoring loop, gate rates and exit codes |
-| `tests/test_run_traced.py` | dirty-tree / not-a-repo refusal logic |
+| `tests/test_provenance.py` | dirty-tree / not-a-repo refusal in `check_provenance` |
+| `tests/test_run_traced.py` | `main()` refuses with exit 1, or proceeds with `--allow-dirty` |
 | `tests/test_tracer.py` | span nesting, timing, JSONL sink |
 | `tests/test_stats.py` | median, p95, share of total, cold start |
 | `tests/test_dashboard.py` | dashboard aggregation without a server |
