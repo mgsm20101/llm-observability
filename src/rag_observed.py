@@ -72,15 +72,16 @@ def _get_reranker() -> "CrossEncoder":
 
 
 # ──────────────────────────────────────────────
-# Main pipeline entry point — creates the Trace
+# Main pipeline entry point — the root span
 # ──────────────────────────────────────────────
 
 @observe(name="rag_pipeline")
 def answer_question(query: str) -> RAGResponse:
-    """Answer an Arabic legal query using the hybrid RAG pipeline.
+    """Answer an Arabic HR-policy question from the local corpus.
 
-    Creates a Langfuse trace with three child spans:
+    Opens the root span `rag_pipeline` (the trace) with three child spans:
         retrieve → rerank → generate
+    Every span is written to `runs/traces.jsonl` as it closes.
     """
     docs = _retrieve(query)
     docs_reranked = _rerank(query, docs)

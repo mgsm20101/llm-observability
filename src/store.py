@@ -8,8 +8,8 @@ database; they need a matrix and a dot product.
 
 What this costs: nothing here demonstrates ANN indexing, sharding, filtered
 search or persistence. Those are real Qdrant features and this file does not
-stand in for them. What it buys is that `python -m src.demo` works on a clean
-checkout with no containers.
+stand in for them. What it buys is that `python run_traced.py` and
+`python -m src.eval_ci` run on a clean checkout with no containers.
 
 The encoder is `intfloat/multilingual-e5-base`, which needs its `query:` and
 `passage:` prefixes — e5 is trained with them and dropping them measurably

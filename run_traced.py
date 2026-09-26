@@ -2,8 +2,9 @@
 
     python run_traced.py [--allow-dirty]
 
-Runs the eval set through the traced pipeline, writes every span to
-`results/traces_<sha8>.jsonl`, gates the run with `src.eval_ci`, and writes
+Runs the eval set through the traced pipeline (`src.eval_ci.score_cases`),
+copies this run's span and score rows from `runs/traces.jsonl` to
+`results/traces_<sha8>.jsonl`, applies the `src.eval_ci` gates, and writes
 `results/summary_<sha8>.json` — span/trace counts, per-stage median and p95
 latency, each stage's share of total wall clock, the cold-start ratio (first
 request vs. the median of the rest), token counts, computed cost, the gate
