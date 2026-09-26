@@ -11,6 +11,81 @@ breaks three eval cases and nobody notices until a user does. One request burns
 5× the expected tokens and the log line says `answered ok`. Ordinary logging
 gives you prose; what you need is structured per-request data you can aggregate.
 
+## Structure
+
+### Entry points
+
+Run `python run_traced.py` first — it is the run the published numbers come from.
+
+| Command | Reads | Writes |
+|---|---|---|
+| `python run_traced.py` | `data/eval_set.jsonl`, `data/corpus.jsonl`, Ollama | appends to `runs/traces.jsonl`; this run's rows → `results/traces_<sha8>.jsonl`; summary → `results/summary_<sha8>.json`; exit 1 if a gate breaks |
+| `python -m src.eval_ci` | same as above | appends to `runs/traces.jsonl`; console report; **exit code** is the CI quality gate |
+| `uvicorn dashboard.app:app --port 8080` | `runs/traces.jsonl` | nothing — read-only view at http://127.0.0.1:8080 |
+
+`python -m pytest -q` runs the model-free tests (no Ollama, no encoder).
+
+### Request flow
+
+```
+question
+  → src/rag_observed.py  answer_question()          root span "rag_pipeline"
+       → _retrieve()   src/store.py DenseStore.search  span "retrieve"
+       → _rerank()     cross-encoder                   span "rerank"
+       → _generate()   Ollama /api/chat                span "generate" (token usage)
+  → src/tracer.py  observe() closes each span → one JSON line → runs/traces.jsonl
+  → src/eval_ci.py score_cases() scores the answer → add_score() rows, same file
+  → run_traced.py  copies this run's rows → results/traces_<sha8>.jsonl
+                   src/stats.py stage_summary() → results/summary_<sha8>.json
+```
+
+### Code map
+
+| File | What it is |
+|---|---|
+| `run_traced.py` | measured-run entry point: refuses a dirty tree, runs the eval, writes `results/` |
+| `src/eval_ci.py` | eval set loader, the one scoring loop (`score_cases`), the three gates, CI exit code |
+| `src/rag_observed.py` | the pipeline: `answer_question` and its three traced stages; `Document`, `RAGResponse` |
+| `src/tracer.py` | span tracing: `observe`, `current_trace_id`, `annotate`, `add_score`, `read_traces` |
+| `src/stats.py` | every latency statistic: median, p95, per-stage summary and share, cold-start ratio |
+| `src/store.py` | in-process dense store over the corpus (e5 `query:`/`passage:` prefixes) |
+| `src/cost.py` | token counts × configured price → `RequestCost`; pure, no I/O |
+| `src/config.py` | settings (Ollama URL/model, encoder, top-k, prices) from env / `.env` |
+| `src/__init__.py` | package marker |
+| `dashboard/app.py` | FastAPI read-only dashboard over `runs/traces.jsonl` |
+| `data/corpus.jsonl` | 12 synthetic HR-policy documents (Arabic) |
+| `data/eval_set.jsonl` | 12 eval cases: 10 answerable, 2 not |
+| `results/summary_b382cd4e.json` | the published summary, written by `run_traced.py` at `b382cd4e` |
+| `results/traces_b382cd4e.jsonl` | every span and score row of that run |
+| `README.md` | this file |
+| `docs/results.md` | the full results write-up |
+| `docs/DESIGN.md` | design decisions and why |
+| `tests/test_eval_ci.py` | scoring loop, gate rates and exit codes |
+| `tests/test_run_traced.py` | dirty-tree / not-a-repo refusal logic |
+| `tests/test_tracer.py` | span nesting, timing, JSONL sink |
+| `tests/test_stats.py` | median, p95, share of total, cold start |
+| `tests/test_dashboard.py` | dashboard aggregation without a server |
+| `tests/test_cost.py` | cost arithmetic |
+| `tests/test_response_models.py` | `Document` / `RAGResponse` validation |
+| `tests/__init__.py` | package marker |
+| `requirements.txt` | full runtime dependencies |
+| `requirements-ci.txt` | the subset the model-free tests need |
+| `pyproject.toml` | project metadata, ruff config |
+| `.env.example` | optional settings, all defaulted |
+| `.github/workflows/tests.yml` | CI: runs the tests |
+| `.gitignore`, `.gitattributes`, `LICENSE` | repository housekeeping |
+
+`runs/` is created on first run and is not tracked.
+
+### Read the code in this order
+
+1. `src/rag_observed.py` — what a request does and which span each stage writes.
+2. `src/tracer.py` — how a span becomes a JSON line.
+3. `src/eval_ci.py` — how an answer is scored and gated.
+4. `run_traced.py` — how a run becomes a result file tied to a commit.
+5. `src/stats.py` — how the numbers in the summary are computed.
+6. `dashboard/app.py` — the same numbers, live, over the sink.
+
 ## Architecture
 
 ```
@@ -23,17 +98,10 @@ answer_question(q)
 Every span → runs/traces.jsonl (one JSON object per line).
 ```
 
-**The sink is a local file, not a hosted service.** `src/tracer.py` is ~150
-lines: a context variable holding the current span, a stack discipline for
-nesting, and a writer. It keeps the public surface the call sites already used
-(`observe`, `langfuse_context`, `add_score`, `flush`), so the pipeline did not
-have to be rebuilt around a different idea.
-
-That was not a stylistic choice. The previous version imported `langfuse` (not
-installed), required two API keys for a cloud account, and queried a Qdrant
-instance that was not running — three external dependencies for a project whose
-entire subject is measuring things locally. It could not be run at all, and
-`docs/results.md` was empty.
+**The sink is a local file, not a hosted service.** `src/tracer.py` is a
+context variable holding the current span, a stack discipline for nesting, and
+a writer. No account, no keys, no network. Why, and what that gives up:
+[docs/DESIGN.md](docs/DESIGN.md).
 
 ## Run
 
@@ -41,6 +109,7 @@ entire subject is measuring things locally. It could not be run at all, and
 pip install -r requirements.txt
 ollama serve && ollama pull gemma3:4b
 
+python run_traced.py                       # the measured run → results/
 python -m src.eval_ci                      # exit 0 = every gate held
 uvicorn dashboard.app:app --port 8080      # http://127.0.0.1:8080
 ```
@@ -50,7 +119,8 @@ No keys, no network, no vector-DB container.
 ## Eval
 
 Twelve cases in `data/eval_set.jsonl` — 10 answerable from the 12-document HR
-corpus, 2 deliberately not. Three checks, thresholds fixed **before** the run:
+corpus, 2 deliberately not. Three checks, thresholds fixed **before** the run
+(`RETRIEVAL_MIN`, `GROUNDING_MIN`, `ABSTENTION_MIN` in `src/eval_ci.py`):
 
 | Check | Threshold |
 |---|---|
@@ -58,49 +128,29 @@ corpus, 2 deliberately not. Three checks, thresholds fixed **before** the run:
 | grounding — the answer contains the fact the eval set requires | ≥ 0.70 |
 | abstention — on an unanswerable question, it declined | ≥ 0.50 |
 
-**Scored by a program, not by a judge.** An earlier version of this gate scored
-answers with a second LLM call judging faithfulness and relevance — a model
-scoring another model's output, never validated against human labels. That
-produces a number nobody can defend: when the judge is wrong there is no way to
-find out, and "faithfulness 0.82" reads like a measurement while being an
-opinion with a decimal point. Every check now resolves against the corpus or
-against a string the eval set fixed in advance, so verdicts replay exactly from
-the saved traces.
+**Scored by a program, not by a judge.** Every check resolves against the
+corpus or against a string the eval set fixed in advance, so verdicts replay
+exactly from the saved traces. Why not an LLM judge:
+[docs/DESIGN.md](docs/DESIGN.md#why-deterministic-scoring-and-not-an-llm-judge).
 
 ## Results
 
-Measured at commit `b382cd4e` on a clean tree, `gemma3:4b` through local Ollama —
-raw files [`results/traces_b382cd4e.jsonl`](results/traces_b382cd4e.jsonl) (every span) and
-[`results/summary_b382cd4e.json`](results/summary_b382cd4e.json) (the summary `run_traced.py` wrote).
-12 questions, 48 spans. Warm figures and warm shares below are
-computed from the same traces file, excluding the first request.
+Measured at commit `b382cd4e` on a clean tree, `gemma3:4b` through local
+Ollama, 12 questions, 48 spans
+([`summary_b382cd4e.json`](results/summary_b382cd4e.json),
+[`traces_b382cd4e.jsonl`](results/traces_b382cd4e.jsonl)):
 
-| stage | median ms (all 12) | median ms (warm 11) | p95 ms (all) | first request ms | share of warm pipeline |
-|---|---:|---:|---:|---:|---:|
-| `retrieve` | 109 | 104 | 41,586 | 92,059 | 4.8% |
-| `rerank` | 302 | 300 | 2,454 | 5,050 | 11.2% |
-| `generate` | 2,054 | 1,995 | 3,820 | 4,405 | 83.8% |
-| `rag_pipeline` | 2,495 | 2,428 | 47,850 | 101,524 | — |
+| stage | median ms (warm 11) | first request ms | share of warm pipeline |
+|---|---:|---:|---:|
+| `retrieve` | 104 | 92,059 | 4.8% |
+| `rerank` | 300 | 5,050 | 11.2% |
+| `generate` | 1,995 | 4,405 | 83.8% |
+| `rag_pipeline` | 2,428 | 101,524 | — |
 
-* **Generation is the cost once warm**: about 84% of warm
-  pipeline time; retrieval is about 5%.
-* **The first request is 42× the warm median**, and almost all of that is
-  `retrieve` loading the embedding model (92 s) — not the LLM. A service
-  that loads the encoder at startup instead of on first use removes it from user latency.
-* **Tokens**: 3,225 in, 196 out across the run; cost 0.00 USD at
-  the default self-hosted price of zero (hosted prices are configuration, not measurement).
-
-**CI gate** (thresholds fixed in `src/eval_ci.py` before this run) — verdict **PASS**, exit 0:
-
-| gate | result | threshold |
-|---|---:|---:|
-| retrieval (expected doc retrieved) | 1.00 | ≥ 0.8 |
-| grounding (answer contains expected fact) | 0.80 | ≥ 0.7 |
-| abstention on out-of-scope questions | 1.00 | ≥ 0.5 |
-| false abstention on answerable questions | 0.00 | reported |
-
-Twelve questions: the gate proves the mechanism fails a build on a regression; the rates
-themselves are too small a sample to rank models or prompts.
+Gate **PASS**, exit 0: retrieval 1.00, grounding 0.80, abstention 1.00, false
+abstention 0.00. Generation is the cost once warm; the first request is 42× the
+warm median, almost all of it the encoder loading. All-request medians, p95,
+tokens and how to read them: [docs/results.md](docs/results.md).
 
 ## Limitations
 
@@ -124,6 +174,9 @@ themselves are too small a sample to rank models or prompts.
   billed at zero. `cost.py` takes prices from config, defaulting to 0.0/0.0, so
   the same counts can optionally be priced against an illustrative rate —
   that is a projection and is labelled as one on every surface.
+- **The dashboard covers the whole sink, a summary covers one run.** Both use
+  `src/stats.py`, so the same rows give the same figures, but
+  `runs/traces.jsonl` accumulates every run until it is deleted.
 
 ## What this project does NOT demonstrate
 
@@ -151,29 +204,6 @@ Refuses to run against a dirty worktree or outside a git repository unless
 `--allow-dirty` is passed — the summary records `source_commit_sha` and
 `worktree_clean`, and a result that cannot be tied to a commit is not
 reproducible. Writes `results/traces_<sha8>.jsonl` and
-`results/summary_<sha8>.json`.
-
-`eval_ci` and the dashboard both report through one `tracer.stage_latencies()`
-and one `tracer.median()`, so the console output, the summary and the web page
-cannot disagree about what the traces say. They used to: one took
-`sorted(v)[n // 2]` and the other a nearest-rank percentile, and the same set
-of traces produced two different `generate` medians for identical data.
-
-## Layout
-
-```
-src/
-├── tracer.py        local JSONL span sink + median/stage_latencies helpers
-├── store.py         in-process dense store (e5 query:/passage: prefixes)
-├── rag_observed.py  the instrumented pipeline
-├── eval_ci.py       the three gates — exit 1 on a breach
-├── cost.py          pure cost modelling, no I/O
-└── schema.py        RAGResponse, Document
-dashboard/app.py     FastAPI view over runs/traces.jsonl
-data/
-├── corpus.jsonl     12 synthetic HR policy documents
-└── eval_set.jsonl   12 cases (10 answerable + 2 not)
-run_traced.py        measured-run entry point → results/
-docs/results.md      write-up, filled in after the measured run
-runs/traces.jsonl    local sink used by `eval_ci` / the dashboard directly
-```
+`results/summary_<sha8>.json` for the commit it ran against; the published
+files are the ones for `b382cd4e`. The summary's stages block can be
+recomputed from its traces file with `src.stats.stage_summary()`.

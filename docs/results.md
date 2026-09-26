@@ -30,20 +30,13 @@ computed from the same traces file, excluding the first request.
 | abstention on out-of-scope questions | 1.00 | ≥ 0.5 |
 | false abstention on answerable questions | 0.00 | reported |
 
-Twelve questions: the gate proves the mechanism fails a build on a regression; the rates
+Twelve questions: the gate is a mechanism for failing a build, and the rates
 themselves are too small a sample to rank models or prompts.
 
-## Scored by a program, not a judge
+## Scoring detail
 
-This eval does not call an LLM to grade its own output. An earlier version of
-this project did — a model scoring another model's output, with the judge
-itself never validated against human labels. That produces a number nobody can
-defend: when the judge is wrong there is no way to find out, and
-"faithfulness 0.82" reads like a measurement while being an opinion with a
-decimal point.
-
-All three checks resolve against the corpus or against a string the eval set
-fixed in advance, so the verdicts replay exactly from the saved traces.
+Scoring is deterministic — why is in
+[DESIGN.md](DESIGN.md#why-deterministic-scoring-and-not-an-llm-judge).
 
 One detail worth keeping visible: Arabic comparisons strip tashkeel and
 tatweel from **both** sides before comparing, because an answer writing `بعد`
@@ -58,38 +51,13 @@ locally. Those numbers came from an uncommitted tree — no `source_commit_sha`,
 no `worktree_clean` check, no `results/summary_<sha8>.json` backing them — so
 they cannot be reproduced from a recorded state and are not repeated here.
 They also predate the fix that made `eval_ci` and the dashboard share one
-`tracer.median()` (previously one took `sorted(v)[n // 2]` and the other a
-nearest-rank percentile, so the same traces produced two different `generate`
+`median()`, now in `src/stats.py` (previously one took `sorted(v)[n // 2]`
+and the other a nearest-rank percentile, so the same traces produced two different `generate`
 medians). The numbers above replace them and carry their own provenance.
 
-## What this does not establish
+## Limits and reproduction
 
-* **Anything about Langfuse or Qdrant.** The sink is a local JSONL file and
-  retrieval is an in-process dense store; neither hosted service is part of
-  this project.
-* **Whether the gates catch a real regression.** Passing on a clean run only
-  exercises the arithmetic. The next useful step is to degrade retrieval
-  deliberately, run the real pipeline, and confirm the build goes red on its
-  own.
-* **12 documents, 12 questions.** One case moves grounding by 10 points. The
-  corpus is synthetic HR policy written for this project; retrieval quality
-  here is not a result and is not offered as one.
-* **A latency benchmark.** One process on a shared desktop, no warm-up
-  discipline, no repetitions, GPU share varying with whatever else holds VRAM.
-  The span *breakdown* is the deliverable; the absolute milliseconds are not a
-  claim about hardware capability, and this is not a CPU-only machine.
-* **Token counts are real; costs are modelled.** Local inference is billed at
-  zero, and any hosted figure is a rate multiplied by a count.
-
-## Reproduce
-
-```bash
-pip install -r requirements.txt
-ollama serve
-ollama pull gemma3:4b
-python run_traced.py
-```
-
-Traces land in `results/traces_<sha8>.jsonl`, one JSON object per span —
-greppable, diffable, and readable without a UI. The gate verdict and every
-figure above land in `results/summary_<sha8>.json`.
+What these numbers do not establish is listed once, in the README's
+[Limitations](../README.md#limitations) and
+[What this project does NOT demonstrate](../README.md#what-this-project-does-not-demonstrate);
+how to reproduce them is in [Reproduction](../README.md#reproduction).

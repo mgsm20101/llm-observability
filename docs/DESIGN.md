@@ -1,39 +1,8 @@
 # Design — 07-llm-observability
 
-## Problem
-
-RAG pipelines fail silently in production:
-
-- the model hallucinates and the request returns HTTP 200
-- a prompt change breaks three eval cases and nobody notices
-- one request burns 5× the expected tokens
-- latency spikes with no visibility into *which* step got slow
-
-`print()` logging gives prose. What you need is structured, queryable,
-per-request data you can aggregate and gate on.
-
-## Architecture
-
-```
-rag_observed.answer_question()   ← @observe("rag_pipeline")  → trace root
-    │
-    ├─── _retrieve()             ← @observe("retrieve")      → span
-    │        └─ in-process dense store, intfloat/multilingual-e5-base
-    │
-    ├─── _rerank()               ← @observe("rerank")        → span
-    │        └─ cross-encoder/mmarco-mMiniLMv2-L12-H384-v1, top 3
-    │
-    └─── _generate()             ← @observe(..., as_type="generation")
-             └─ gemma3:4b via Ollama, token usage read back from the response
-
-Every span → runs/traces.jsonl, one JSON object per line, flushed on close.
-
-Eval CI (src/eval_ci.py):
-    ├─ 12 cases: 10 answerable, 2 deliberately not
-    ├─ three deterministic checks — retrieval / grounding / abstention
-    ├─ writes each verdict back onto the trace as a score row
-    └─ sys.exit(1) if any pre-registered threshold breaks
-```
+The problem, the architecture and the file map are in the
+[README](../README.md#structure); results are in [results.md](results.md).
+This file records only the decisions and what each one costs.
 
 ## Key design decisions
 
@@ -44,12 +13,11 @@ package was not installed, two API keys were required, and the retrieval half
 pointed at a Qdrant instance that was not running. Three external dependencies
 for a project whose entire subject is measuring things locally.
 
-`src/tracer.py` replaces it in ~150 lines with the same public surface the call
-sites already used (`observe`, `langfuse_context`, `add_score`, `flush`), so
-`rag_observed.py` and `eval_ci.py` did not have to be rebuilt around a different
-idea. A tracing SDK is a context variable holding the current span, a stack
-discipline for nesting, and a writer. Making that explicit is worth more here
-than the dashboard it gave up.
+`src/tracer.py` replaces it with a handful of plain functions — `observe`,
+`current_trace_id`, `annotate`, `add_score`, `read_traces`. A tracing SDK is a
+context variable holding the current span, a stack discipline for nesting, and
+a writer. Making that explicit is worth more here than the dashboard it gave
+up.
 
 What this costs: nothing here is evidence of integrating with a hosted backend,
 and the README says so.
@@ -77,13 +45,19 @@ A system that refused every question scores 1.000 on abstention and is useless.
 Neither number means anything alone, so `eval_ci` prints them adjacent and the
 README repeats the warning.
 
-### Why one shared `median()`
+### Why one stats module and one eval loop
 
 `eval_ci` took `sorted(v)[n // 2]` and the dashboard took a nearest-rank
 percentile, so the same set of traces produced two different `generate`
 medians for identical data. Two components of one project disagreeing about
-identical data is a bug that looks like a measurement. Both now call
-`tracer.median()`, which averages the middle pair at even n.
+identical data is a bug that looks like a measurement. Every latency figure now
+comes from `src/stats.py`; the dashboard and the summary JSON both call
+`stage_summary()`, including its `n × median / root total` share.
+
+The same reasoning applies to scoring: `run_traced.py` used to carry its own
+copy of the eval loop. Both entry points now call `eval_ci.score_cases()` and
+`eval_ci.gate_failures()`, so a change to how an answer is scored or gated
+cannot reach one entry point and miss the other.
 
 ### Why cost.py is a pure module
 
@@ -91,10 +65,3 @@ No I/O, so it is unit-testable without mocking a client, and so the distinction
 stays visible: token counts are measured, prices are a table, and a cost is a
 multiplication of the two. Local inference is billed at zero; any hosted figure
 is labelled a projection wherever it appears.
-
-## Results
-
-Written by `run_traced.py`, not by hand: see [`results.md`](results.md) and
-`results/summary_<sha8>.json`. Numbers there are tied to a commit SHA and a
-clean worktree at run time; nothing here restates a figure that is not backed
-by a result file in the tree.
