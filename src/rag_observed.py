@@ -12,10 +12,10 @@ took, what it was given, what it returned, and what it would have cost.
 from typing import TYPE_CHECKING
 
 import httpx
+from pydantic import BaseModel
 
 from .config import get_settings
-from .cost import calc_cost
-from .schema import Document, RAGResponse
+from .cost import RequestCost, calc_cost
 from .store import DenseStore, load_corpus
 from .tracer import annotate, current_trace_id, observe
 
@@ -27,6 +27,26 @@ if TYPE_CHECKING:
 # multilingual mMARCO variant is at least trained on the right languages, and
 # it is already in the local HF cache so it costs no download.
 RERANK_MODEL = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+
+
+class Document(BaseModel):
+    """One retrieved passage; `source` is the corpus document id."""
+
+    content: str
+    score: float
+    source: str
+
+
+class RAGResponse(BaseModel):
+    """What `answer_question` returns: the answer, its sources, its trace."""
+
+    answer: str
+    sources: list[Document]
+    trace_id: str | None = None
+    cost: RequestCost | None = None
+
+    model_config = {"arbitrary_types_allowed": True}
+
 
 _settings = get_settings()
 _store: DenseStore | None = None

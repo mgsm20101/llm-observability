@@ -1,9 +1,9 @@
-"""Span/response schema validation — src/schema.py."""
+"""Response models — Document and RAGResponse in src/rag_observed.py."""
 import pytest
 from pydantic import ValidationError
 
 from src.cost import calc_cost
-from src.schema import Document, RAGResponse
+from src.rag_observed import Document, RAGResponse
 
 
 def test_document_accepts_valid_fields():

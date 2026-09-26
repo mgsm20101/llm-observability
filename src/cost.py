@@ -18,12 +18,6 @@ class RequestCost:
     cost_usd: float
     model: str
 
-    @property
-    def cost_per_1k(self) -> float:
-        if self.total_tokens == 0:
-            return 0.0
-        return (self.cost_usd / self.total_tokens) * 1000
-
 
 def calc_cost(
     input_tokens: int,
@@ -54,15 +48,3 @@ def calc_cost(
         cost_usd=cost,
         model=model_name,
     )
-
-
-def monthly_cost_estimate(cost_per_request: float, requests_per_day: int) -> dict:
-    """Project monthly cost given avg cost/request and daily volume."""
-    daily = cost_per_request * requests_per_day
-    monthly = daily * 30
-    return {
-        "daily_usd": round(daily, 4),
-        "monthly_usd": round(monthly, 2),
-        "requests_per_day": requests_per_day,
-        "cost_per_request_usd": round(cost_per_request, 6),
-    }
