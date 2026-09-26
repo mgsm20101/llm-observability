@@ -68,7 +68,7 @@ def test_gate_passes_and_returns_exit_code_zero_when_all_thresholds_hold(monkeyp
     ])
     monkeypatch.setattr(eval_ci, "read_traces", lambda: [])
 
-    exit_code = eval_ci._print_and_gate(report, _FakeSettings())
+    exit_code = eval_ci.print_and_gate(report, _FakeSettings())
 
     assert exit_code == 0
     assert "EVAL CI PASSED" in capsys.readouterr().out
@@ -84,7 +84,7 @@ def test_gate_fails_and_returns_exit_code_one_when_grounding_drops_below_thresho
     report = eval_ci.Report(cases=cases)
     monkeypatch.setattr(eval_ci, "read_traces", lambda: [])
 
-    exit_code = eval_ci._print_and_gate(report, _FakeSettings())
+    exit_code = eval_ci.print_and_gate(report, _FakeSettings())
     out = capsys.readouterr().out
 
     assert exit_code == 1
@@ -100,7 +100,7 @@ def test_gate_reports_stage_latencies_from_the_trace_sink(monkeypatch, capsys):
     ]
     monkeypatch.setattr(eval_ci, "read_traces", lambda: synthetic_rows)
 
-    eval_ci._print_and_gate(report, _FakeSettings())
+    eval_ci.print_and_gate(report, _FakeSettings())
     out = capsys.readouterr().out
 
     assert "retrieve" in out
@@ -108,4 +108,45 @@ def test_gate_reports_stage_latencies_from_the_trace_sink(monkeypatch, capsys):
 
 
 def test_fold_treats_diacritic_variants_of_a_word_as_equal():
-    assert eval_ci._fold("بُعد") == eval_ci._fold("بعد")
+    assert eval_ci.fold("بُعد") == eval_ci.fold("بعد")
+
+
+class _Doc:
+    def __init__(self, source):
+        self.source = source
+
+
+class _Result:
+    def __init__(self, answer, sources, trace_id):
+        self.answer = answer
+        self.sources = [_Doc(s) for s in sources]
+        self.trace_id = trace_id
+        self.cost = None
+
+
+def test_score_cases_scores_each_case_and_writes_scores_in_a_fixed_order(monkeypatch):
+    cases = [
+        {"id": "E1", "question": "q1", "answerable": True,
+         "expected_doc": "leave", "answer_contains": ["21"]},
+        {"id": "U1", "question": "q2", "answerable": False},
+    ]
+    answers = {
+        "q1": _Result("21 يوما", ["leave"], "t1"),
+        "q2": _Result("لا تتوفر معلومات كافية", [], "t2"),
+    }
+    written = []
+    monkeypatch.setattr(eval_ci, "add_score",
+                        lambda trace_id, name, value: written.append((trace_id, name, value)))
+
+    report = eval_ci.score_cases(cases, answer=answers.__getitem__)
+
+    assert written == [
+        ("t1", "retrieved_expected", 1.0),
+        ("t1", "contains_expected", 1.0),
+        ("t1", "abstained", 0.0),
+        ("t2", "abstained", 1.0),
+    ]
+    assert report.retrieval == 1.0
+    assert report.grounding == 1.0
+    assert report.abstention == 1.0
+    assert eval_ci.gate_failures(report) == []

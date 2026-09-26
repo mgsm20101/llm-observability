@@ -114,6 +114,7 @@ def build_summary(
     source_commit_sha: str,
     worktree_clean: bool,
 ) -> dict:
+    from src.eval_ci import gate_checks
     from src.tracer import median, stage_latencies
 
     stages = stage_latencies(spans)
@@ -165,9 +166,10 @@ def build_summary(
         },
         "cost_usd": round(total_cost, 6),
         "gates": {
-            "retrieval": {"result": gate_report.retrieval, "min": 0.80},
-            "grounding": {"result": gate_report.grounding, "min": 0.70},
-            "abstention": {"result": gate_report.abstention, "min": 0.50},
+            **{
+                name: {"result": value, "min": floor}
+                for name, value, floor in gate_checks(gate_report)
+            },
             "false_abstention": {"result": gate_report.false_abstention},
         },
         "verdict": "PASS" if gate_exit_code == 0 else "FAIL",
@@ -193,49 +195,15 @@ def run_measured(sha: str, worktree_clean: bool) -> int:
     the reranker.
     """
     from src.config import get_settings
-    from src.eval_ci import EVAL_SET_PATH, ABSTENTION_MARKERS, Report, _fold, CaseResult
-    from src.rag_observed import answer_question
-    from src.tracer import add_score, flush, read_traces
+    from src.eval_ci import gate_failures, load_cases, score_cases
+    from src.tracer import read_traces
 
     settings = get_settings()
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     short_sha = sha[:8]
 
     before = len(read_traces())
-    cases = [
-        json.loads(line)
-        for line in EVAL_SET_PATH.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    report = Report()
-    for case in cases:
-        result = answer_question(case["question"])
-        trace_id = result.trace_id or "unknown"
-        folded = _fold(result.answer)
-        abstained = any(_fold(m) in folded for m in ABSTENTION_MARKERS)
-        answerable = bool(case["answerable"])
-        retrieved = contains = None
-        if answerable:
-            retrieved = any(d.source == case["expected_doc"] for d in result.sources)
-            wanted = case.get("answer_contains") or []
-            contains = all(_fold(w) in folded for w in wanted)
-        report.cases.append(
-            CaseResult(
-                id=case["id"],
-                answerable=answerable,
-                retrieved_expected=retrieved,
-                contains_expected=contains,
-                abstained=abstained,
-                trace_id=trace_id,
-                cost_usd=result.cost.cost_usd if result.cost else 0.0,
-                tokens=result.cost.total_tokens if result.cost else 0,
-            )
-        )
-        if answerable:
-            add_score(trace_id, "retrieved_expected", float(bool(retrieved)))
-            add_score(trace_id, "contains_expected", float(bool(contains)))
-        add_score(trace_id, "abstained", float(abstained))
-    flush()
+    report = score_cases(load_cases())
 
     all_rows = read_traces()
     new_rows = all_rows[before:]
@@ -246,15 +214,7 @@ def run_measured(sha: str, worktree_clean: bool) -> int:
         for row in new_rows:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
-    checks = [
-        ("retrieval", report.retrieval, 0.80),
-        ("grounding", report.grounding, 0.70),
-        ("abstention", report.abstention, 0.50),
-    ]
-    exit_code = 0
-    for _, value, floor in checks:
-        if value is not None and value < floor:
-            exit_code = 1
+    exit_code = 1 if gate_failures(report) else 0
 
     summary = build_summary(spans, report, exit_code, settings, sha, worktree_clean)
     summary_path = RESULTS_DIR / f"summary_{short_sha}.json"
