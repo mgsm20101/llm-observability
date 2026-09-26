@@ -102,20 +102,20 @@ def test_span_is_recorded_even_when_the_function_raises(sink):
     assert rows[0]["duration_ms"] is not None
 
 
-def test_current_span_is_cleared_after_a_span_closes(sink):
+def test_current_trace_id_is_cleared_after_a_span_closes(sink):
     @tracer.observe(name="stage")
     def work():
-        assert tracer.langfuse_context.get_current_span() is not None
+        assert tracer.current_trace_id() is not None
 
     work()
-    assert tracer.langfuse_context.get_current_span() is None
+    assert tracer.current_trace_id() is None
 
 
-def test_update_current_observation_sets_input_output_and_usage(sink):
+def test_annotate_sets_input_output_usage_and_metadata(sink):
     @tracer.observe(name="generate", as_type="generation")
     def generate():
-        tracer.langfuse_context.update_current_observation(
-            input="q", output="a", usage={"input": 10, "output": 5}
+        tracer.annotate(
+            input="q", output="a", usage={"input": 10, "output": 5}, model="m"
         )
 
     generate()
@@ -125,6 +125,7 @@ def test_update_current_observation_sets_input_output_and_usage(sink):
     assert row["output"] == "a"
     assert row["usage"] == {"input": 10, "output": 5}
     assert row["kind"] == "generation"
+    assert row["metadata"] == {"model": "m"}
 
 
 # ── the JSONL sink: round trip and aggregation ──

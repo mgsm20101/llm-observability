@@ -39,7 +39,7 @@ from pathlib import Path
 from .config import get_settings
 from .rag_observed import answer_question
 from .stats import stage_latencies
-from .tracer import TRACE_PATH, add_score, flush, read_traces
+from .tracer import TRACE_PATH, add_score, read_traces
 
 EVAL_SET_PATH = Path(__file__).parent.parent / "data" / "eval_set.jsonl"
 
@@ -168,7 +168,6 @@ def score_cases(
             ok = scored.contains_expected if scored.answerable else scored.abstained
             print(f"       {'ok ' if ok else 'MISS'}  tokens={scored.tokens}",
                   flush=True)
-    flush()
     return report
 
 

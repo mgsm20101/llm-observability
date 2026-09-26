@@ -1,24 +1,21 @@
 """Span tracing to a local JSONL file.
 
-This replaces the hosted Langfuse client the project was written against. The
-swap is deliberate and it is a downgrade in exactly one respect: there is no
-Langfuse UI, and nothing here proves the project integrates with Langfuse.
+A tracing SDK is a context variable holding the current span, a stack
+discipline for nesting, and a writer. This module is exactly that:
 
-What it does prove is the part that was actually worth proving. A tracing SDK
-is not magic: it is a context variable holding the current span, a stack
-discipline for nesting, and a writer. Rebuilding that surface in ~150 lines
-makes the trace model explicit instead of hiding it behind a decorator, and it
-removes three external dependencies (an account, two API keys, a network) from
-a project whose entire claim is that it measures things locally.
-
-The public surface matches the Langfuse one the call sites already use —
-`observe`, `langfuse_context`, `add_score`, `flush` — so `rag_observed.py` and
-`eval_ci.py` did not have to be rewritten around a different idea.
+  observe(name)        decorator — opens a span, nests it under the current
+                       one, writes it as one row when the function returns
+                       or raises
+  current_trace_id()   trace id of the span currently open, or None
+  annotate(**fields)   attach input/output/usage/metadata to the open span
+  add_score(...)       attach an eval verdict to a trace as its own row
+  read_traces()        read every row back
 
 Spans land in `runs/traces.jsonl`, one JSON object per line, each carrying its
 `trace_id`, `span_id`, `parent_id`, timing and whatever the call site attached.
 A file is a deliberate choice over SQLite: traces are append-only, they are
 read back in bulk, and a text file can be diffed and committed as evidence.
+There is no hosted backend and no UI beyond `dashboard/app.py`.
 """
 
 from __future__ import annotations
@@ -155,44 +152,32 @@ def observe(name: str | None = None, as_type: str = "span"):
     return decorate
 
 
-class _Context:
-    """The `langfuse_context` surface the call sites already use."""
-
-    @staticmethod
-    def get_current_trace_id() -> str | None:
-        span = _current.get()
-        return span.trace_id if span else None
-
-    @staticmethod
-    def get_current_span() -> Span | None:
-        return _current.get()
-
-    @staticmethod
-    def update_current_observation(**fields) -> None:
-        span = _current.get()
-        if span is None:
-            return
-        for key, value in fields.items():
-            if key in {"input", "output"}:
-                setattr(span, key, value)
-            elif key == "usage":
-                span.usage.update(value or {})
-            elif key == "name":
-                span.name = value
-            else:
-                span.metadata[key] = value
-
-    @staticmethod
-    def update_current_trace(**fields) -> None:
-        """Trace-level fields live on the root span.
-
-        There is no separate trace object here: the root span *is* the trace,
-        and anything attached to it is recoverable by grouping on `trace_id`.
-        """
-        _Context.update_current_observation(**fields)
+def current_trace_id() -> str | None:
+    """Trace id of the span currently open, or None outside any span."""
+    span = _current.get()
+    return span.trace_id if span else None
 
 
-langfuse_context = _Context()
+def annotate(**fields) -> None:
+    """Attach fields to the span currently open; a no-op outside any span.
+
+    `input` and `output` replace the span's own fields, `usage` is merged into
+    its usage dict, `name` renames it, and every other key goes into
+    `metadata`. There is no separate trace object: the root span *is* the
+    trace, so trace-level fields are annotated onto the root span.
+    """
+    span = _current.get()
+    if span is None:
+        return
+    for key, value in fields.items():
+        if key in {"input", "output"}:
+            setattr(span, key, value)
+        elif key == "usage":
+            span.usage.update(value or {})
+        elif key == "name":
+            span.name = value
+        else:
+            span.metadata[key] = value
 
 
 def add_score(trace_id: str, name: str, value: float, comment: str = "") -> None:
@@ -215,15 +200,6 @@ def add_score(trace_id: str, name: str, value: float, comment: str = "") -> None
             "comment": comment,
         }
     )
-
-
-def flush() -> None:
-    """A no-op, kept so call sites need no edit.
-
-    Every row is written and flushed as its span closes, so there is nothing
-    pending at exit. The hosted client batched over the network; a local file
-    has no reason to.
-    """
 
 
 def read_traces(path: Path = TRACE_PATH) -> list[dict]:

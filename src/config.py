@@ -7,17 +7,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
-
-    # Tracing — a local JSONL sink, see tracer.py. The hosted Langfuse client
-    # this project was written against needed an account and two required keys,
-    # which meant the project could not run at all without them. It now runs
-    # with no credentials and no network; the keys below are optional and unused
-    # by default, kept only so a hosted backend can be wired back in later.
-    trace_dir: Path = ROOT / "runs"
-    langfuse_public_key: str | None = None
-    langfuse_secret_key: str | None = None
-    langfuse_host: str = "https://cloud.langfuse.com"
+    # extra="ignore": an older .env may still carry LANGFUSE_* keys, which
+    # are no longer settings and should not stop the project from starting.
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     # Ollama — `gemma3:4b` is what the local server actually serves. The former
     # default `qwen3:4b` lives in a second model store the running server cannot

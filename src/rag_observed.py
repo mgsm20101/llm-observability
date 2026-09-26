@@ -17,7 +17,7 @@ from .config import get_settings
 from .cost import calc_cost
 from .schema import Document, RAGResponse
 from .store import DenseStore, load_corpus
-from .tracer import langfuse_context, observe
+from .tracer import annotate, current_trace_id, observe
 
 if TYPE_CHECKING:
     from sentence_transformers import CrossEncoder
@@ -74,9 +74,9 @@ def answer_question(query: str) -> RAGResponse:
         model_name=_settings.ollama_model,
     )
 
-    trace_id = langfuse_context.get_current_trace_id()
+    trace_id = current_trace_id()
 
-    langfuse_context.update_current_trace(
+    annotate(
         input=query,
         output=answer,
         tags=["p7-observability", "hr-policy"],
@@ -108,7 +108,7 @@ def _retrieve(query: str, top_k: int = 8) -> list[Document]:
         for doc, score in hits
     ]
 
-    langfuse_context.update_current_observation(
+    annotate(
         input={"query": query, "top_k": top_k},
         output={"doc_ids": [d.source for d in docs]},
         metadata={"returned_docs": len(docs), "encoder": _settings.embed_model},
@@ -138,7 +138,7 @@ def _rerank(query: str, docs: list[Document], top_k: int | None = None) -> list[
     result = [Document(content=d.content, score=float(s), source=d.source)
               for d, s in reranked]
 
-    langfuse_context.update_current_observation(
+    annotate(
         input={"input_docs": len(docs), "model": RERANK_MODEL},
         output={"output_docs": len(result), "doc_ids": [d.source for d in result]},
     )
@@ -176,7 +176,7 @@ def _generate(query: str, docs: list[Document]) -> tuple[str, int, int]:
     input_tok = response.get("prompt_eval_count", 0)
     output_tok = response.get("eval_count", 0)
 
-    langfuse_context.update_current_observation(
+    annotate(
         model=_settings.ollama_model,
         usage={"input": input_tok, "output": output_tok},
     )
