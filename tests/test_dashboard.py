@@ -41,7 +41,7 @@ def test_get_metrics_aggregates_span_and_score_rows(monkeypatch):
     assert result["scores"]["grounded"]["mean"] == 0.5
 
 
-def test_get_metrics_computes_share_of_pipeline_for_non_root_stages(monkeypatch):
+def test_get_metrics_computes_share_of_total_for_non_root_stages(monkeypatch):
     synthetic_rows = [
         {"kind": "span", "name": "rag_pipeline", "duration_ms": 100.0, "usage": {}},
         {"kind": "span", "name": "generate", "duration_ms": 65.0, "usage": {}},
@@ -50,8 +50,8 @@ def test_get_metrics_computes_share_of_pipeline_for_non_root_stages(monkeypatch)
 
     result = _run(dashboard_app.get_metrics())
 
-    assert result["stages"]["generate"]["share_of_pipeline"] == 65.0
-    assert result["stages"]["rag_pipeline"]["share_of_pipeline"] is None
+    assert result["stages"]["generate"]["share_of_total"] == 65.0
+    assert result["stages"]["rag_pipeline"]["share_of_total"] is None
 
 
 def test_dashboard_ui_route_returns_html_without_hitting_the_sink():

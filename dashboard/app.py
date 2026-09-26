@@ -1,14 +1,13 @@
-"""FastAPI dashboard over the local trace sink.
+"""FastAPI dashboard over the local trace sink — read-only.
 
     uvicorn dashboard.app:app --port 8080
     http://127.0.0.1:8080
 
-Reads `runs/traces.jsonl` directly — the same file `eval_ci` reports from, so the
-dashboard and the CI gate cannot disagree about what happened.
-
-This used to call `get_langfuse().fetch_traces()` against a hosted account. That
-function no longer exists, which meant the command the README advertised raised
-an ImportError. The replacement has no network dependency and no keys.
+Reads `runs/traces.jsonl`, the file `run_traced.py` and `eval_ci` append to.
+Per-stage figures come from `src/stats.stage_summary()`, the same function
+that writes the stages block of `results/summary_<sha8>.json`, so a stage's
+share is computed the same way on both surfaces. The dashboard covers every
+run in the sink; a summary covers one run.
 
 **The headline here is the stage breakdown, not the average.** An average
 end-to-end latency tells you a request was slow; `generate` at 70% of wall clock
@@ -22,11 +21,10 @@ from collections import defaultdict
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
-from src.tracer import TRACE_PATH, read_traces, stage_latencies
+from src.stats import root_durations, stage_summary
+from src.tracer import TRACE_PATH, read_traces
 
 app = FastAPI(title="LLM Observability Dashboard", version="0.2.0")
-
-ROOT_SPAN = "rag_pipeline"
 
 
 @app.get("/metrics")
@@ -35,28 +33,14 @@ async def get_metrics() -> dict:
     rows = read_traces()
     if not rows:
         return {
-            "message": f"No traces yet. Run `python -m src.eval_ci`, "
-                       f"then reload. Sink: {TRACE_PATH}"
+            "message": "No traces yet. Run `python run_traced.py` (or "
+                       f"`python -m src.eval_ci`), then reload. Sink: {TRACE_PATH}"
         }
 
     spans = [r for r in rows if r.get("kind") != "score"]
     scores = [r for r in rows if r.get("kind") == "score"]
 
-    # The same helper `eval_ci` reports from, so the two cannot disagree.
-    stages = stage_latencies(rows)
-
-    by_stage: dict[str, list[float]] = defaultdict(list)
-    for span in spans:
-        if span.get("duration_ms") is not None:
-            by_stage[span["name"]].append(float(span["duration_ms"]))
-
-    # Share of wall clock is only meaningful against the root span's total.
-    root_total = sum(by_stage.get(ROOT_SPAN, [])) or None
-    for name, stage in stages.items():
-        stage["share_of_pipeline"] = (
-            None if name == ROOT_SPAN or root_total is None
-            else round(100 * sum(by_stage[name]) / root_total, 1)
-        )
+    stages = stage_summary(spans)
 
     # The sink stores usage as {"input": n, "output": n} — there is no
     # total_tokens key and no cost on the span. Cost is modelled downstream in
@@ -71,7 +55,7 @@ async def get_metrics() -> dict:
 
     return {
         "sink": str(TRACE_PATH),
-        "trace_count": len(by_stage.get(ROOT_SPAN, [])),
+        "trace_count": len(root_durations(spans)),
         "span_count": len(spans),
         "stages": stages,
         "tokens_in": tokens_in,
@@ -114,8 +98,9 @@ async def dashboard_ui() -> str:
 </head>
 <body>
 <h1>LLM Observability — P7</h1>
-<p class="muted">يقرأ مباشرةً من <code>runs/traces.jsonl</code> — نفس الملف الذي
-تقرأ منه بوابة الـ CI، فلا يمكن أن يختلفا.</p>
+<p class="muted">يقرأ مباشرةً من <code>runs/traces.jsonl</code> — الملف الذي يكتب فيه
+<code>run_traced.py</code> وبوابة الـ CI. أرقام المراحل محسوبة بنفس دوال
+<code>src/stats.py</code>.</p>
 
 <div class="card">
   <h3>الإجمالي</h3>
@@ -148,12 +133,12 @@ async function load() {
     <div class="metric"><div class="val">${d.total_tokens}</div><div class="label">Tokens (${d.tokens_in} in / ${d.tokens_out} out)</div></div>`;
 
   const rows = Object.entries(d.stages).map(([name, s]) => `
-    <tr><td>${name}</td><td>${s.n}</td><td>${s.median_ms}</td><td>${s.max_ms}</td>
-    <td>${s.share_of_pipeline === null ? '—'
-        : s.share_of_pipeline + '% <span class="bar" style="width:'
-          + s.share_of_pipeline + 'px"></span>'}</td></tr>`).join('');
+    <tr><td>${name}</td><td>${s.n}</td><td>${s.median_ms}</td><td>${s.p95_ms}</td><td>${s.max_ms}</td>
+    <td>${s.share_of_total === null ? '—'
+        : s.share_of_total + '% <span class="bar" style="width:'
+          + s.share_of_total + 'px"></span>'}</td></tr>`).join('');
   document.getElementById('stages').innerHTML =
-    `<table><tr><th>المرحلة</th><th>n</th><th>median ms</th><th>max ms (بارد)</th>
+    `<table><tr><th>المرحلة</th><th>n</th><th>median ms</th><th>p95 ms</th><th>max ms (بارد)</th>
      <th>النصيب</th></tr>${rows}</table>`;
 
   const sc = Object.entries(d.scores).map(([name, s]) =>

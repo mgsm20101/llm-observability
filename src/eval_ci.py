@@ -38,7 +38,8 @@ from pathlib import Path
 
 from .config import get_settings
 from .rag_observed import answer_question
-from .tracer import TRACE_PATH, add_score, flush, read_traces, stage_latencies
+from .stats import stage_latencies
+from .tracer import TRACE_PATH, add_score, flush, read_traces
 
 EVAL_SET_PATH = Path(__file__).parent.parent / "data" / "eval_set.jsonl"
 

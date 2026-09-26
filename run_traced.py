@@ -69,43 +69,6 @@ def check_repo_state(allow_dirty: bool) -> tuple[str, bool]:
     return sha, clean
 
 
-def _p95(values: list[float]) -> float:
-    """Linear-interpolation p95 — the tail figure, not the median.
-
-    `tracer.median()` is the shared source of truth for the middle of the
-    distribution; p95 is computed here because the CI gate does not need it
-    and the shared helper deliberately stays small.
-    """
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    if len(ordered) == 1:
-        return ordered[0]
-    rank = 0.95 * (len(ordered) - 1)
-    lo = int(rank)
-    hi = min(lo + 1, len(ordered) - 1)
-    frac = rank - lo
-    return ordered[lo] + (ordered[hi] - ordered[lo]) * frac
-
-
-def _cold_start_ratio(root_durations_ms: list[float]) -> float | None:
-    """First request's duration over the median of every other request.
-
-    The first request of a run pays to load the encoder, the cross-encoder
-    and the model; this ratio is how large that one-time cost is relative to
-    a warm request, without needing a warm-up phase to hide it.
-    """
-    from src.tracer import median
-
-    if len(root_durations_ms) < 2:
-        return None
-    first, *rest = root_durations_ms
-    rest_median = median(rest)
-    if not rest_median:
-        return None
-    return round(first / rest_median, 2)
-
-
 def build_summary(
     spans: list[dict],
     gate_report,
@@ -115,34 +78,10 @@ def build_summary(
     worktree_clean: bool,
 ) -> dict:
     from src.eval_ci import gate_checks
-    from src.tracer import median, stage_latencies
+    from src.stats import cold_start_ratio, root_durations, stage_summary
 
-    stages = stage_latencies(spans)
-    for name, stage in stages.items():
-        values = [
-            float(s["duration_ms"])
-            for s in spans
-            if s.get("name") == name and s.get("duration_ms") is not None
-        ]
-        stage["p95_ms"] = round(_p95(values), 1)
-
-    root_total = sum(
-        float(s["duration_ms"])
-        for s in spans
-        if s.get("name") == "rag_pipeline" and s.get("duration_ms") is not None
-    ) or None
-    for name, stage in stages.items():
-        stage["share_of_total"] = (
-            None
-            if name == "rag_pipeline" or root_total is None
-            else round(100 * stage["n"] * stage["median_ms"] / root_total, 1)
-        )
-
-    root_durations = [
-        float(s["duration_ms"])
-        for s in spans
-        if s.get("name") == "rag_pipeline" and s.get("duration_ms") is not None
-    ]
+    stages = stage_summary(spans)
+    roots = root_durations(spans)
 
     tokens_in = sum(int((s.get("usage") or {}).get("input") or 0) for s in spans)
     tokens_out = sum(int((s.get("usage") or {}).get("output") or 0) for s in spans)
@@ -156,9 +95,9 @@ def build_summary(
         "source_commit_sha": source_commit_sha,
         "worktree_clean": worktree_clean,
         "span_count": len(spans),
-        "trace_count": len(root_durations),
+        "trace_count": len(roots),
         "stages": stages,
-        "cold_start_ratio": _cold_start_ratio(root_durations),
+        "cold_start_ratio": cold_start_ratio(roots),
         "tokens": {
             "input": tokens_in,
             "output": tokens_out,

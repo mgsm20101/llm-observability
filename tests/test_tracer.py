@@ -1,4 +1,4 @@
-"""Tracer: span context/nesting, timing, the local JSONL sink, and shared median()."""
+"""Tracer: span context/nesting, timing, and the local JSONL sink."""
 import json
 
 import pytest
@@ -127,25 +127,6 @@ def test_update_current_observation_sets_input_output_and_usage(sink):
     assert row["kind"] == "generation"
 
 
-# ── the shared median() ──
-
-
-def test_median_of_odd_length_list_is_the_middle_value():
-    assert tracer.median([5.0, 1.0, 3.0]) == 3.0
-
-
-def test_median_of_even_length_list_averages_the_middle_pair():
-    assert tracer.median([1.0, 2.0, 3.0, 4.0]) == pytest.approx(2.5)
-
-
-def test_median_of_single_value_list_is_that_value():
-    assert tracer.median([42.0]) == 42.0
-
-
-def test_median_of_empty_list_is_zero():
-    assert tracer.median([]) == 0.0
-
-
 # ── the JSONL sink: round trip and aggregation ──
 
 
@@ -174,18 +155,3 @@ def test_add_score_writes_a_score_row_keyed_by_trace_id(sink):
     assert rows[0]["kind"] == "score"
     assert rows[0]["trace_id"] == "t1"
     assert rows[0]["value"] == 1.0
-
-
-def test_stage_latencies_ignores_score_rows_and_summarises_by_stage(sink):
-    rows = [
-        {"kind": "span", "name": "retrieve", "duration_ms": 10.0},
-        {"kind": "span", "name": "retrieve", "duration_ms": 20.0},
-        {"kind": "score", "name": "abstained", "value": 1.0, "duration_ms": None},
-    ]
-    stages = tracer.stage_latencies(rows)
-
-    assert stages["retrieve"]["n"] == 2
-    assert stages["retrieve"]["median_ms"] == pytest.approx(15.0)
-    assert stages["retrieve"]["min_ms"] == 10.0
-    assert stages["retrieve"]["max_ms"] == 20.0
-    assert "abstained" not in stages

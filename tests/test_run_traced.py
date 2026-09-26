@@ -103,27 +103,3 @@ def test_main_proceeds_past_the_refusal_check_with_allow_dirty(monkeypatch):
 
     assert exit_code == 0
     assert called == {"sha": "abc123def456", "worktree_clean": False}
-
-
-def test_p95_of_a_small_sample_interpolates_between_the_top_two_values():
-    # sorted [1, 2, 3, 4, 5], rank = 0.95 * 4 = 3.8 -> between index 3 (4) and 4 (5)
-    assert run_traced._p95([5.0, 1.0, 3.0, 2.0, 4.0]) == pytest.approx(4.8)
-
-
-def test_p95_of_a_single_value_is_that_value():
-    assert run_traced._p95([42.0]) == 42.0
-
-
-def test_p95_of_an_empty_list_is_zero():
-    assert run_traced._p95([]) == 0.0
-
-
-def test_cold_start_ratio_compares_first_request_to_the_median_of_the_rest():
-    # first request 90ms, rest [10, 10] -> median 10 -> ratio 9.0
-    ratio = run_traced._cold_start_ratio([90.0, 10.0, 10.0])
-    assert ratio == pytest.approx(9.0)
-
-
-def test_cold_start_ratio_is_none_with_fewer_than_two_requests():
-    assert run_traced._cold_start_ratio([90.0]) is None
-    assert run_traced._cold_start_ratio([]) is None
